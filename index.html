@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <title>PacMan Mendela</title>
+  <script src="https://cdn.jsdelivr.net/npm/quadtree-lib@1.0.9/build/js/quadtree.min.js"></script>
+  <script src="js/el.js"></script>
+  <script src="js/kolor.js"></script>
+  <style>
+    body {
+      background: black;
+      margin: 0 auto;
+    }
+
+    canvas {
+      -webkit-user-select: none;
+    }
+
+    #box {
+      border: yellow dotted 1px;
+      background: rgba(255, 255, 0, 0.2);
+      position: absolute;
+    }
+
+    #menu {
+      border: rgb(71, 71, 71) solid 2px;
+      border-radius: 5px;
+      background: rgb(194, 194, 194);
+      position: absolute;
+
+    }
+
+    .option {
+      padding-left: 10px;
+      user-select: none;
+    }
+
+    .option:hover {
+      background: rgb(131, 131, 131);
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="obras" width="1400px" height="600px">
+    <img src='img/pacman_sprites.png' id="sprite">
+  </canvas>
+  </br>
+  <label style='color:white;'><input type='checkbox' name='auto' id='auto'> WŁĄCZYĆ AUTOMAT?</label>
+  <p style='color:white;'>shift(przytrzymaj) lub nacisnac LMB - zaznaczanie obszaru</br> CTRL - zaznaczanie wielu pól
+    </br>
+    CTRL+Z - Undo </br>
+    CTRL+Y - Redo </br>
+    CTRL+X - Cut </br>
+    CTRL+S - Save map </br>
+    DEL - usun zaznaczone pole
+  </p>
+  <input style="display:none;" type="file" id="input_file" onchange="loadJson()">
+
+
+  <script>
+    const sprite = document.getElementById('sprite');
+    const canvas = document.getElementById("obras");
+    const ctx = canvas.getContext('2d');
+    ctx.globalAlpha = 0.4;
+
+    var quadtree = new Quadtree({
+      width: canvas.width,
+      height: canvas.height,
+      maxElement: 5
+    });
+    var elementMyszki;
+    var paleta = []; // elementy palety
+    var kolor = []; // elementy plotna
+    var zaznaczony = []; //zaznaczone elementy
+    var historia = []; // historia
+    var currHistIndex = 0;
+    var ctrl = false; // wciscniety control
+    var isDrawing = false; // czy rusuje kwadrat
+    var currentId = 0; // do automatycznego przesuwania
+    var pos = {
+      x: 0,
+      y: 0
+    }; //current mouse position
+    var isAuto = false; // tryb pracy
+    var isMenu = true; //tryb pracy
+    var cofanie = false;
+    var isClick = false;
+
+    var x, y; //poczatkowe x,y kwadratu
+    var endX, endY; // koncowe x,y kwadratu
+
+
+    //funckje
+
+    function zwroc(id, dx, dy) { // wyszukuje elementu po id na plotnie i zmienia jego initial drawImage
+      //console.log("id " + id, zaznaczony)
+      for (let cos of kolor) {
+        if (cos.id == id) {
+          cos.updateElement(dx, dy)
+          //console.log('aaa')
+          break;
+        }
+      }
+    }
+
+
+
+    document.addEventListener('keydown', event => { // czy nacisniety jest ctrl
+      isMenu = false;
+      event.preventDefault(); // zeby ctrl + s dzialal
+      if (event.key == 'Control' && ctrl != true && isDrawing != true) {
+        ctrl = true;
+        cofanie = true;
+      } else if (event.key == 'Shift' && isDrawing != true) {
+        isDrawing = true;
+        //console.log(isDrawing)
+        x = pos.x;
+        y = pos.y;
+
+      }
+
+    });
+    document.addEventListener('keyup', event => { // odcinsniety ctrl
+      if (event.key == 'Control') {
+        ctrl = false;
+        cofanie = false;
+      } else if (event.key == 'Shift') {
+
+        isDrawing = false;
+        drawBox(x, y, pos.x - x, pos.y - y)
+        endX = pos.x;
+        endY = pos.y;
+
+      }
+
+      if (event.keyCode == 90 && (navigator.platform.match("Mac") ? event.metaKey : event.ctrlKey)) {
+
+        undo();
+        console.log('undo')
+        return false;
+      } else if ((navigator.platform.match("Mac") ? event.metaKey : event.ctrlKey) && event.keyCode == 89) {
+        redo();
+        console.log('redo')
+        return false;
+      } else if ((navigator.platform.match("Mac") ? event.metaKey : event.ctrlKey) && event.keyCode == 83) {
+        exportJson();
+        console.log('save')
+        return false;
+      } else if ((navigator.platform.match("Mac") ? event.metaKey : event.ctrlKey) && event.keyCode == 76) {
+        document.getElementById('input_file').click();
+        console.log('load')
+        return false;
+      } else if ((navigator.platform.match("Mac") ? event.metaKey : event.ctrlKey) && event.keyCode == 88) {
+        deleteSelected();
+        console.log('cut')
+        return false;
+      }
+
+      if (event.keyCode == 46) {
+        deleteSelected();
+        console.log('load')
+        return false;
+      }
+
+      //console.log(ctrl)
+    }, false);
+
+    canvas.addEventListener('contextmenu', e => { // prawy przycisk myszki opcje etc.
+      //console.log('prawy')
+      e.preventDefault();
+      if (document.getElementById('menu'))
+        document.getElementById('menu').remove();
+
+
+
+      let el = document.createElement('DIV')
+      //console.table(x, y, endX, endY)
+      isMenu = true;
+
+      //IFY KURDE do tworzenie tego biedackiego DIVA
+
+      document.body.appendChild(el, el.id = 'menu', el.style.width = '100px', el.style.height = '320px', el.style
+        .top = pos.y + 'px', el.style.left = pos.x + 'px')
+
+      let p;
+      el.appendChild(p = document.createElement('div'), p.innerHTML = 'Undo', p.className = 'option', p.id = "undo",
+        p.style.height = '40px')
+      el.appendChild(p = document.createElement('div'), p.innerHTML = 'Redo', p.className = 'option', p.id = "redo",
+        p.style.height = '40px')
+      el.appendChild(p = document.createElement('div'), p.innerHTML = 'Cut', p.className = 'option', p.id = "cut", p
+        .style.height = '40px')
+      el.appendChild(p = document.createElement('div'), p.innerHTML = 'Copy', p.className = 'option', p.id = "copy",
+        p.style.height = '40px')
+      el.appendChild(p = document.createElement('div'), p.innerHTML = 'Paste', p.className = 'option', p.id =
+        "paste", p.style.height = '40px')
+      el.appendChild(p = document.createElement('div'), p.innerHTML = 'Delete', p.className = 'option', p.id =
+        "delete", p.style.height = '40px')
+      el.appendChild(p = document.createElement('div'), p.innerHTML = 'Save to file (ctrl + s)', p.className =
+        'option', p.id = "save", p.style.height = '40px')
+      el.appendChild(p = document.createElement('div'), p.innerHTML = 'Load data', p.className = 'option', p.id =
+        "load", p.style.height = '40px')
+
+
+      //listnery do tych opcji 
+
+      document.getElementById("undo").addEventListener('click', e => {
+        undo();
+      })
+      document.getElementById("redo").addEventListener('click', e => {
+        redo();
+      })
+      document.getElementById("save").addEventListener('click', e => {
+        exportJson();
+      })
+      document.getElementById("load").addEventListener('click', e => {
+        document.getElementById('input_file').click();
+      })
+      document.getElementById("delete").addEventListener('click', e => {
+        deleteSelected();
+      })
+
+
+    })
+
+    canvas.addEventListener('mousedown', e => { //ruch myszka
+      //isDrawing = true;
+      //console.log(isDrawing)
+      x = pos.x;
+      y = pos.y;
+      //console.log(elementMyszki)
+    })
+    canvas.addEventListener('mouseup', e => { //ruch myszka
+      isDrawing = true;
+      if (!isClick && x > 780) {
+
+        drawBox(x, y, pos.x - x, pos.y - y)
+      } else {
+        isDrawing = false;
+      }
+      endX = pos.x;
+      endY = pos.y;
+    })
+
+    canvas.addEventListener('mousemove', e => { //ruch myszka
+      isClick = false;
+      isDrawing = false;
+      pos = {
+        x: e.pageX,
+        y: e.pageY
+      }
+      elementMyszki = quadtree.colliding(pos)
+
+    })
+
+    let draw = setInterval(function (err) { // DRAW FUNCTION
+
+
+      for (let el of paleta) {
+        if (el === elementMyszki[0] && elementMyszki[0]) {
+          el.listenHover()
+        } else {
+          el.listenBlackout();
+        }
+      }
+      for (let el of kolor) {
+        if (el === elementMyszki[0] && elementMyszki[0]) {
+          el.listenHover()
+        } else {
+          el.listenBlackout();
+        }
+
+        //porownanie dzialania /\quadtree \/ normalny
+
+        //el.listenHover(pos)
+      }
+      for (let el of zaznaczony) {
+        for (let cos of kolor) {
+          if (cos.id == el.id) {
+
+            cos.highlight()
+            break;
+            //console.log(cos)
+          }
+        }
+      }
+      if (!isMenu && document.getElementById('menu')) {
+        document.getElementById('menu').remove();
+      }
+
+      if (isDrawing === true) {
+        //drawBox(x, y, pos.x - x, pos.y - y)
+      }
+
+
+    }, 10)
+
+
+    canvas.addEventListener('mousedown', e => { // click function
+      isMenu = false;
+      isClick = true;
+      //console.log(isDrawing)
+
+      if (!isDrawing) {
+        for (let el of elementMyszki) {
+          el.listenClick()
+          //console.log(zaznaczony)
+        }
+        // for (let el of elementMyszki) {
+        //   el.listenClick()
+        // }
+      }
+    })
+
+    document.getElementById('auto').addEventListener('change', () => { // zmiana trybu dzialania auto : normal
+      isAuto = document.getElementById('auto').checked ? true : false;
+      console.log(isAuto)
+    })
+
+
+    function drawBox(sx, sy, ex, ey) { // tworzy box ktory pokazuje zakres zaznaczonych blokow
+
+
+      let el = document.createElement('DIV')
+      console.table(x, y, endX, endY)
+      //IFY KURDE do tworzenie tego biedackiego DIVA
+      if (ex > 0 && ey > 0) {
+        document.body.appendChild(el, el.id = 'box', el.style.width = ex + 'px', el.style.height = ey + 'px', el.style
+          .top = sy + 'px', el.style.left = sx + 'px')
+      } else if (ey < 0 && ex > 0) {
+        document.body.appendChild(el, el.id = 'box', el.style.width = ex + 'px', el.style.height = Math.abs(ey) + 'px',
+          el.style.top = (sy + ey) + 'px', el.style.left = sx + 'px')
+      } else if (ex < 0 && ey > 0) {
+        document.body.appendChild(el, el.id = 'box', el.style.width = Math.abs(ex) + 'px', el.style.height = ey + 'px',
+          el.style.top = sy + 'px', el.style.left = (sx + ex) + 'px')
+      } else if (ex < 0 && ey < 0) {
+        document.body.appendChild(el, el.id = 'box', el.style.width = Math.abs(ex) + 'px', el.style.height = Math.abs(
+          ey) + 'px', el.style.top = (sy + ey) + 'px', el.style.left = (sx + ex) + 'px')
+      }
+
+      ctx.beginPath(); // tworzenie sciezki by moc sprawdzac ktory element jest w naszym prostokacie
+      ctx.rect(sx, sy, ex, ey)
+
+      //ctx.strokeStyle = 'white';
+      //ctx.stroke()
+
+      if (!ctrl && !isClick) { // nie Podoba MI SIE TO
+        zaznaczony = []
+      }
+      for (let elem of kolor) {
+        if (ctx.isPointInPath(elem.sx + 12, elem.sy + 12)) {
+          //console.log(elem.id)
+          zaznaczony.push({
+            // x: elem.sx,
+            // y: elem.sy,
+            id: elem.id
+          })
+        }
+
+      }
+      let co = {
+        event: 'select',
+        what: zaznaczony
+      }
+
+      historia.push(co);
+      currHistIndex++
+
+
+      //   //console.log(zaznaczony)
+      setTimeout(function () { // likwidacja elementu po krotki czasie
+        el.remove();
+        isDrawing = false;
+      }, 250)
+
+    }
+    //funckje
+
+    //SETUP
+    sprite.addEventListener('load', e => {
+      //rysuj palete 
+
+      let id = 0;
+      for (let i = 0; i < 32; i++) {
+        for (let j = 0; j < 20; j++) {
+          let el = new Element(sprite, i * 48, j * 48, 48, i * 24, (j * 24) + 24, 24, id)
+          paleta.push(el);
+          quadtree.push(el)
+          id++;
+        }
+      }
+      for (let el of paleta) {
+        el.draw();
+      }
+
+
+      //rysuj palete
+
+      //rysuj mape
+      id = 0;
+      for (let i = 0; i < 24; i++) {
+        for (let j = 0; j < 24; j++) {
+
+          let el = new Kolor(sprite, 1488, 576, 48, 795 + (j * 24), (i * 24) + 24, 24, id)
+          kolor.push(el)
+          quadtree.push(el)
+          id++;
+        }
+      }
+      for (let el of kolor) {
+        el.draw();
+      }
+
+      //rysuj mape
+    });
+    //SETUP
+
+
+
+
+
+
+
+    // opcje LISTNERY
+    function exportJson() {
+      let json = []
+      for (let el of kolor) {
+        let obj = {
+          x: el.dx,
+          y: el.dy
+        }
+        json.push(obj)
+      }
+
+
+      var output = new Blob([JSON.stringify(json)], {
+        type: 'application/octet-stream'
+      });
+      var objURL = window.URL.createObjectURL(output);
+      var saveAs = prompt('Save As ?');
+      if (!saveAs) {
+        return;
+      }
+      var downloadLink = document.createElement('a');
+      downloadLink.download = saveAs + ".json";
+      downloadLink.innerHTML = 'Download File';
+      downloadLink.href = objURL;
+      downloadLink.onclick = clean;
+      downloadLink.style.display = 'none';
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+    }
+
+    function loadJson() {
+      let file = document.getElementById("input_file").files[0]
+      let reader = new FileReader();
+
+      reader.readAsText(file)
+
+      reader.onload = function () {
+        let table = JSON.parse(reader.result);
+
+        for (let i = 0; i < kolor.length; i++) {
+          zwroc(i, table[i].x, table[i].y)
+        }
+      };
+
+    }
+
+
+    function clean(e) {
+      document.body.removeChild(e.target);
+    }
+
+
+
+    function undo() {
+      //console.log(currentId)
+      if (currHistIndex > 0) {
+        if (historia[currHistIndex - 1].event == 'select') {
+          currHistIndex = currHistIndex - 1;
+          zaznaczony = historia[currHistIndex].what;
+          if (historia[currHistIndex].what.length == 1) {
+            currentId = historia[currHistIndex].what[0].id;
+          }
+        } else if (historia[currHistIndex - 1].event == 'change') {
+          currHistIndex = currHistIndex - 1;
+          zaznaczony = historia[currHistIndex].ids;
+          for (let event of historia[currHistIndex].what) {
+            //console.log('zmienaa', event.prevDx, event.prevDy)
+            zwroc(event.targetId, event.prevDx, event.prevDy)
+          }
+          if (historia[currHistIndex].ids.length == 1) {
+            currentId = historia[currHistIndex].ids[0].id;
+          }
+        }
+      }
+      // console.log(currHistIndex)
+      // console.log(historia)
+    }
+
+    function redo() {
+      if (currHistIndex <= historia.length - 1) {
+        // console.log(currHistIndex)
+        if (historia[currHistIndex].event == 'select') {
+          currHistIndex = currHistIndex + 1;
+          zaznaczony = historia[currHistIndex].what;
+          if (historia[currHistIndex].what.length == 1) {
+            currentId = historia[currHistIndex].what[0].id;
+          }
+        } else if (historia[currHistIndex].event == 'change') {
+          zaznaczony = historia[currHistIndex].ids;
+          for (let event of historia[currHistIndex].what) {
+            zwroc(event.targetId, event.targetDx, event.targetDy)
+            //console.log(currHistIndex)
+          }
+          if (historia[currHistIndex].ids.length == 1) {
+            currentId = historia[currHistIndex].ids[0].id;
+          }
+          currHistIndex = currHistIndex + 1;
+        }
+      }
+      //console.log(historia)
+    }
+
+
+    function deleteSelected() {
+      let wpisHistory = {
+        event: 'change',
+        what: [],
+        ids: []
+      };
+      for (let el of zaznaczony) {
+
+        let co = {
+          targetId: el.id,
+          targetDx: 1488,
+          targetDy: 576,
+          prevDx: kolor[el.id].dx,
+          prevDy: kolor[el.id].dy,
+          fromId: 480
+        }
+        let zazn = {
+          id: el.id
+        }
+
+        wpisHistory.what.push(co)
+        wpisHistory.ids.push(zazn)
+
+        zwroc(el.id, 1488, 576);
+      }
+      historia.length = currHistIndex;
+      historia.push(wpisHistory)
+      currHistIndex++
+    }
+
+
+
+  </script>
+</body>
+
+</html>
